@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.log
+文件清单.csv
+统计报告.html
+统计数据.json
+错误日志.txt
+提取文件/
+种子/
+字幕/
+.media_asset_collector_output
+.DS_Store
+Thumbs.db
