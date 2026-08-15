@@ -28,7 +28,16 @@ class CollectorTests(unittest.TestCase):
         try:
             app.withdraw()
             app.update_idletasks()
-            self.assertIn("v1.2.0", app.title())
+            self.assertIn("v1.2.1", app.title())
+            self.assertEqual(app.hash_check.cget("text"), "生成视频 SHA-256")
+            self.assertGreaterEqual(len(app.tooltips), 11)
+            tooltip_text = "\n".join(tip.text for tip in app.tooltips)
+            self.assertIn("数小时", tooltip_text)
+            self.assertIn("通常建议保持开启", tooltip_text)
+            app.tooltips[5]._show()
+            app.update_idletasks()
+            self.assertIsNotNone(app.tooltips[5].window)
+            app.tooltips[5]._hide()
         finally:
             app.destroy()
 
@@ -122,6 +131,27 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(statuses["exact.torrent"], "完全匹配")
             self.assertEqual(statuses["named.torrent"], "可靠匹配")
             self.assertEqual(statuses["suspected.torrent"], "疑似匹配")
+
+    def test_project_group_skips_archive_container_and_names_scan_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "资源"
+            project = source / "完" / "Adolescence" / "Subs"
+            project.mkdir(parents=True)
+            video_content = b"episode video"
+            (project / "Adolescence.S01E01.mkv").write_bytes(video_content)
+            (project / "Adolescence.S01E01.srt").write_text("subtitle", encoding="utf-8")
+            info = {b"length": len(video_content), b"name": b"Adolescence.S01E01.mkv"}
+            (project / "Adolescence.torrent").write_bytes(bencode({b"info": info}))
+            (source / "root.srt").write_text("root subtitle", encoding="utf-8")
+
+            analysis = collector.scan_library(source, use_cache=False)
+            nested_items = [item for item in analysis.items if "Adolescence" in Path(item.source).parts]
+            root_item = next(item for item in analysis.items if Path(item.source).name == "root.srt")
+
+            self.assertTrue(nested_items)
+            self.assertEqual({item.group for item in nested_items}, {"Adolescence"})
+            self.assertEqual(root_item.group, "资源")
+            self.assertEqual(analysis.videos[0].match_status, "已精确匹配")
 
     def test_cache_reuse_and_invalidation(self):
         with tempfile.TemporaryDirectory() as temp:

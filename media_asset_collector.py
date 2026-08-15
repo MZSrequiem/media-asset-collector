@@ -23,13 +23,19 @@ import tkinter as tk
 from urllib.parse import quote
 
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".sup", ".smi"}
 VIDEO_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv", ".flv", ".webm",
     ".ts", ".m2ts", ".mts", ".mpg", ".mpeg", ".vob", ".iso",
 }
 INVALID_FILENAME = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+PROJECT_CONTAINER_NAMES = {
+    "完", "已完", "完结", "已完结", "未完", "未完结", "连载", "更新中",
+    "待整理", "已整理", "归档", "下载", "downloads", "complete", "completed",
+    "电影", "影片", "movies", "movie", "电视剧", "剧集", "tv", "series",
+    "动漫", "动画", "anime", "纪录片", "documentary",
+}
 
 
 def decode_text(value: bytes) -> str:
@@ -326,6 +332,20 @@ def subtitle_media_key(value: str) -> str:
     return normalize_part(stem)
 
 
+def project_group(relative: Path, source: Path) -> str:
+    """返回第一个有意义的项目目录；根目录文件使用扫描目录名。"""
+    folders = relative.parts[:-1]
+    if not folders:
+        return source.name or str(source)
+    normalized_containers = {normalize_part(name) for name in PROJECT_CONTAINER_NAMES}
+    for index, folder in enumerate(folders):
+        has_deeper_folder = index + 1 < len(folders)
+        if has_deeper_folder and normalize_part(folder) in normalized_containers:
+            continue
+        return folder
+    return folders[-1]
+
+
 def media_hints(filename: str) -> tuple[str, str]:
     resolution = re.search(r"(?i)(4320p|2160p|1440p|1080p|720p|576p|480p|4k|8k)", filename)
     codec = re.search(r"(?i)(x26[45]|h[ .]?26[45]|hevc|av1|avc|vc-1|vp9)", filename)
@@ -441,7 +461,7 @@ def scan_library(
     for index, video in enumerate(videos):
         video_name_index.setdefault((normalize_part(Path(video.source).name), video.size), []).append(index)
         video_size_index.setdefault(video.size, []).append(index)
-        group = Path(video.relative).parts[0] if len(Path(video.relative).parts) > 1 else "根目录"
+        group = project_group(Path(video.relative), source)
         video_group_index.setdefault(group.casefold(), []).append(index)
     video_matches: dict[int, list[str]] = {}
     video_match_methods: dict[int, str] = {}
@@ -455,7 +475,7 @@ def scan_library(
         if cancel_event and cancel_event.is_set():
             cancelled = True
             break
-        group = relative.parts[0] if len(relative.parts) > 1 else "根目录"
+        group = project_group(relative, source)
         torrent_groups.add(group.casefold())
         try:
             details = parse_torrent(path)
@@ -541,7 +561,7 @@ def scan_library(
         if cancel_event and cancel_event.is_set():
             cancelled = True
             break
-        group = relative.parts[0] if len(relative.parts) > 1 else "根目录"
+        group = project_group(relative, source)
         key = cache_key(path, source)
         content_hash = cached_hash(cache, key, stat, "sha256") if use_cache else ""
         if content_hash:
@@ -841,6 +861,65 @@ def collect(
     return copied, errors
 
 
+class Tooltip:
+    """轻量级悬停说明，不占用主界面空间。"""
+
+    def __init__(self, widget: tk.Widget, text: str, delay: int = 450):
+        self.widget = widget
+        self.text = text
+        self.delay = delay
+        self.after_id = None
+        self.window: tk.Toplevel | None = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _schedule(self, _event=None):
+        self._cancel()
+        self.after_id = self.widget.after(self.delay, self._show)
+
+    def _cancel(self):
+        if self.after_id is not None:
+            self.widget.after_cancel(self.after_id)
+            self.after_id = None
+
+    def _show(self):
+        self.after_id = None
+        if self.window or not self.widget.winfo_exists():
+            return
+        window = tk.Toplevel(self.widget)
+        window.wm_overrideredirect(True)
+        window.attributes("-topmost", True)
+        label = tk.Label(
+            window,
+            text=self.text,
+            justify="left",
+            anchor="w",
+            wraplength=390,
+            background="#fffbea",
+            foreground="#202124",
+            relief="solid",
+            borderwidth=1,
+            padx=10,
+            pady=8,
+            font=("Microsoft YaHei UI", 9),
+        )
+        label.pack()
+        window.update_idletasks()
+        x = self.widget.winfo_pointerx() + 14
+        y = self.widget.winfo_pointery() + 18
+        x = min(x, self.widget.winfo_screenwidth() - window.winfo_reqwidth() - 8)
+        y = min(y, self.widget.winfo_screenheight() - window.winfo_reqheight() - 8)
+        window.wm_geometry(f"+{max(0, x)}+{max(0, y)}")
+        self.window = window
+
+    def _hide(self, _event=None):
+        self._cancel()
+        if self.window is not None:
+            self.window.destroy()
+            self.window = None
+
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -850,6 +929,7 @@ class App(tk.Tk):
         self.items: list[Item] = []
         self.videos: list[VideoRecord] = []
         self.events: queue.Queue = queue.Queue()
+        self.tooltips: list[Tooltip] = []
         self.cancel_event = threading.Event()
         self.scan_running = False
         self.scan_cancelled = False
@@ -908,7 +988,7 @@ class App(tk.Tk):
         self.together_check.pack(side=LEFT)
         self.hash_check = ttk.Checkbutton(
             options,
-            text="生成视频 SHA-256（很慢，会完整读取每个视频）",
+            text="生成视频 SHA-256",
             variable=self.hash_videos_var,
             command=self._scan_options_changed,
         )
@@ -940,11 +1020,11 @@ class App(tk.Tk):
         self.progress_bar.pack(side=LEFT, fill=X, expand=True)
         ttk.Label(progress_frame, text="查看：").pack(side=LEFT, padx=(12, 4))
         filters = ("全部", "仅异常", "种子", "字幕", "未匹配/疑似", "无对应种子的视频", "重复项")
-        filter_box = ttk.Combobox(
+        self.filter_box = ttk.Combobox(
             progress_frame, textvariable=self.filter_var, values=filters, state="readonly", width=19
         )
-        filter_box.pack(side=LEFT)
-        filter_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_trees())
+        self.filter_box.pack(side=LEFT)
+        self.filter_box.bind("<<ComboboxSelected>>", lambda _event: self._refresh_trees())
 
         notebook = ttk.Notebook(self)
         notebook.pack(fill=BOTH, expand=True, padx=12, pady=(0, 10))
@@ -976,6 +1056,61 @@ class App(tk.Tk):
         self.video_tree.configure(yscrollcommand=video_ybar.set)
         self.video_tree.pack(side=LEFT, fill=BOTH, expand=True)
         video_ybar.pack(side=RIGHT, fill="y")
+        self._add_tooltips()
+
+    def _tip(self, widget: tk.Widget, text: str):
+        self.tooltips.append(Tooltip(widget, text))
+
+    def _add_tooltips(self):
+        source_tip = (
+            "要检查的影视资源总目录。程序会递归读取其中的种子、外挂字幕和视频信息，"
+            "但不会移动、改名、修改或删除任何源文件。目录较大时首次扫描会稍久。"
+        )
+        output_tip = (
+            "种子、字幕和统计报告将复制到这里。本地视频不会被复制。建议选择资源目录之外的独立目录；"
+            "若目标中已有同名但内容不同的文件，程序会报告错误而不会覆盖。"
+        )
+        self._tip(self.source_entry, source_tip)
+        self._tip(self.source_button, source_tip)
+        self._tip(self.output_entry, output_tip)
+        self._tip(self.output_button, output_tip)
+        self._tip(
+            self.together_check,
+            "只影响输出目录的排布，不影响扫描和匹配。勾选后种子与字幕统一放进“提取文件”目录，"
+            "适合希望得到一个便于备份、移动的小型资源包的用户；取消后会分成“种子”和“字幕”两类目录。",
+        )
+        self._tip(
+            self.hash_check,
+            "SHA-256 会逐字节读取每一个完整视频，因此速度取决于视频总容量和硬盘速度，机械硬盘或大型媒体库可能需要数小时。"
+            "通常不建议日常扫描勾选。只有需要确认两个视频内容是否完全相同、排查重复文件，或制作长期完整性清单时才建议开启。"
+            "它不会修改视频，但会产生持续磁盘读取。",
+        )
+        self._tip(
+            self.cache_check,
+            "缓存会记录文件路径、大小、修改时间和已经算出的哈希。下次扫描时，未变化的字幕和视频可以跳过重复计算，"
+            "通常建议保持开启，媒体库越大收益越明显。缓存不包含影视内容，保存在当前 Windows 用户目录中；"
+            "如果怀疑文件被修改但修改时间未变化，可清除缓存后重新扫描。",
+        )
+        self._tip(
+            self.clear_cache_button,
+            "删除当前资源目录对应的扫描缓存。不会删除种子、字幕、视频或已整理结果。清除后下一次扫描会重新计算相关哈希。",
+        )
+        self._tip(
+            self.scan_button,
+            "只读检查资源目录并生成预览，不会复制任何文件。建议先查看异常、疑似匹配和重复提示，确认无误后再执行整理。",
+        )
+        self._tip(
+            self.collect_button,
+            "按照当前预览复制种子和字幕，并生成 CSV、JSON、HTML 与磁力链接报告。不会复制或删除视频，也不会改动源目录。",
+        )
+        self._tip(
+            self.cancel_button,
+            "请求停止正在进行的目录扫描或视频哈希。已完成的部分会保留供查看，但为了避免清单不完整，停止后不能直接执行整理。",
+        )
+        self._tip(
+            self.filter_box,
+            "只改变当前表格显示的内容，不会重新扫描或删除结果。“仅异常”适合集中检查未匹配、疑似匹配、孤立字幕和重复提示。",
+        )
 
     def _choose_source(self):
         value = filedialog.askdirectory(title="选择影视资源目录", initialdir=self.source_var.get())
