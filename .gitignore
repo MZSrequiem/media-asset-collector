@@ -5,9 +5,15 @@ __pycache__/
 统计报告.html
 统计数据.json
 错误日志.txt
+磁力链接.txt
+视频媒体信息.csv
 提取文件/
 种子/
 字幕/
 .media_asset_collector_output
 .DS_Store
 Thumbs.db
+build/
+dist/
+*.spec
+.venv-build/
