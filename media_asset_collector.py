@@ -21,7 +21,7 @@ import tkinter as tk
 from urllib.parse import quote
 
 
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 SUBTITLE_EXTENSIONS = {".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx", ".sup", ".smi"}
 VIDEO_EXTENSIONS = {
     ".mkv", ".mp4", ".avi", ".mov", ".m4v", ".wmv", ".flv", ".webm",
@@ -537,7 +537,7 @@ class App(tk.Tk):
         ttk.Button(paths, text="选择…", command=self._choose_output).grid(row=1, column=2, **pad)
         paths.columnconfigure(1, weight=1)
 
-        ttk.Label(
+        tk.Label(
             self,
             text="重要：种子和磁力链接只是下载线索，不是备份。做种者可能离线，未来不一定能下载回视频。本工具绝不删除原视频。",
             foreground="#a64b00",
@@ -704,7 +704,14 @@ def main() -> int:
     parser.add_argument("--preview", action="store_true", help="仅扫描预览，不写入任何文件")
     parser.add_argument("--separate", action="store_true", help="将种子和字幕分类保存（默认保存在同一文件夹）")
     parser.add_argument("--hash-videos", action="store_true", help="计算每个本地视频的 SHA-256（可能非常耗时）")
+    parser.add_argument("--self-test-gui", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.self_test_gui:
+        app = App()
+        app.withdraw()
+        app.update_idletasks()
+        app.destroy()
+        return 0
     if args.source:
         if not args.source.is_dir():
             parser.error("资源目录不存在")
