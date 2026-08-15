@@ -3,6 +3,7 @@ import tempfile
 import unittest
 import hashlib
 import threading
+import json
 from pathlib import Path
 
 
@@ -28,9 +29,12 @@ class CollectorTests(unittest.TestCase):
         try:
             app.withdraw()
             app.update_idletasks()
-            self.assertIn("v1.2.1", app.title())
+            self.assertIn("v1.3.0", app.title())
             self.assertEqual(app.hash_check.cget("text"), "生成视频 SHA-256")
-            self.assertGreaterEqual(len(app.tooltips), 11)
+            self.assertTrue(app.copy_torrents_var.get())
+            self.assertTrue(app.copy_subtitles_var.get())
+            self.assertTrue(app.generate_reports_var.get())
+            self.assertGreaterEqual(len(app.tooltips), 14)
             tooltip_text = "\n".join(tip.text for tip in app.tooltips)
             self.assertIn("数小时", tooltip_text)
             self.assertIn("通常建议保持开启", tooltip_text)
@@ -198,6 +202,46 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(sum("重复字幕" in item.duplicate_status for item in subtitles), 2)
             self.assertTrue(any("同名字幕" in item.duplicate_status for item in subtitles))
             self.assertTrue(all("重复视频" in video.duplicate_status for video in analysis.videos))
+
+    def test_selective_copy_and_reports_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source = Path(temp) / "library"
+            source.mkdir()
+            (source / "Movie.srt").write_text("subtitle", encoding="utf-8")
+            info = {b"length": 10, b"name": b"Movie.mkv"}
+            (source / "Movie.torrent").write_bytes(bencode({b"info": info}))
+            analysis = collector.scan_library(source, use_cache=False)
+
+            torrents_only = Path(temp) / "torrents-only"
+            copied, errors = collector.collect(
+                analysis.items, torrents_only, source, videos=analysis.videos,
+                copy_torrents=True, copy_subtitles=False, generate_reports=False,
+            )
+            self.assertEqual((copied, errors), (1, []))
+            self.assertEqual([path.suffix for path in torrents_only.rglob("*.torrent")], [".torrent"])
+            self.assertFalse(any(torrents_only.rglob("*.srt")))
+            self.assertFalse((torrents_only / "统计报告.html").exists())
+
+            reports_only = Path(temp) / "reports-only"
+            copied, errors = collector.collect(
+                analysis.items, reports_only, source, videos=analysis.videos,
+                copy_torrents=False, copy_subtitles=False, generate_reports=True,
+            )
+            self.assertEqual((copied, errors), (0, []))
+            self.assertFalse((reports_only / "提取文件").exists())
+            self.assertTrue((reports_only / "统计报告.html").is_file())
+            data = json.loads((reports_only / "统计数据.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["output_selection"], {
+                "copy_torrents": False, "copy_subtitles": False, "generate_reports": True,
+            })
+            manifest = (reports_only / "文件清单.csv").read_text(encoding="utf-8-sig")
+            self.assertIn("本次复制", manifest.splitlines()[0])
+
+            with self.assertRaisesRegex(ValueError, "至少选择"):
+                collector.collect(
+                    analysis.items, Path(temp) / "nothing", source,
+                    copy_torrents=False, copy_subtitles=False, generate_reports=False,
+                )
 
 
 if __name__ == "__main__":

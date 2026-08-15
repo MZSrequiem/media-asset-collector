@@ -25,7 +25,8 @@
 
 ### 整理与记录
 
-- 只复制种子和字幕，可将两者放在同一文件夹，也可分类保存。
+- 种子、字幕和统计报告可以独立选择：支持全部输出、只整理种子、只整理字幕或只生成报告。
+- 同时复制种子和字幕时，可将两者放在同一文件夹，也可分类保存。
 - 从种子原始 `info` 数据计算 Info Hash、生成磁力链接，并优先使用种子内部资源名命名。
 - 输出文件清单、视频信息、重复项、磁力链接以及 HTML、JSON 统计报告。
 
@@ -39,7 +40,7 @@
 
 1. 从 GitHub Releases 下载 `media-asset-collector-windows-x64.exe` 直接运行；或安装 Python 3.10 以上并双击 `启动工具.bat`。
 2. 选择影视资源目录和一个单独的输出目录。
-3. 选择是否勾选“种子和字幕放在同一文件夹”、是否使用扫描缓存，以及是否计算视频 SHA-256。
+3. 选择扫描方式，并在“输出内容”中勾选需要复制的种子、字幕和报告；至少保留一项。
 4. 点击“1. 扫描预览”，在“种子与字幕”和“本地视频健康检查”中检查匹配与重复提示；右上方筛选器可只看异常项。
 5. 点击“2. 复制整理并生成报告”。
 
@@ -47,6 +48,7 @@
 
 - 同目录模式：`提取文件/` 中统一保存所有种子和字幕。字幕名会包含原相对路径，避免重名。
 - 分类模式：分别保存在 `种子/` 和 `字幕/`，字幕保留项目内层级。
+- 可以关闭任意复制类型；只勾选“生成报告”时，不会复制种子或字幕。
 - 种子在两种模式下都优先使用内部 `info.name` 资源名命名。
 - `文件清单.csv`：可用 Excel 打开的详细列表。
 - `磁力链接.txt`：从有效种子生成的磁力链接清单。
@@ -71,6 +73,8 @@ python .\media_asset_collector.py --source "E:\\资源" --output "E:\\整理结�
 python .\media_asset_collector.py --source "E:\\资源" --output "E:\\整理结果" --hash-videos
 python .\media_asset_collector.py --source "E:\\资源" --preview --no-cache
 python .\media_asset_collector.py --source "E:\\资源" --preview --clear-cache
+python .\media_asset_collector.py --source "E:\\资源" --output "E:\\仅种子" --no-subtitles --no-reports
+python .\media_asset_collector.py --source "E:\\资源" --output "E:\\仅报告" --no-torrents --no-subtitles
 ```
 
 ## 构建 Windows EXE
