@@ -22,6 +22,15 @@ def bencode(value):
 
 
 class CollectorTests(unittest.TestCase):
+    def test_graphical_app_can_be_created(self):
+        app = collector.App()
+        try:
+            app.withdraw()
+            app.update_idletasks()
+            self.assertIn("v1.1.1", app.title())
+        finally:
+            app.destroy()
+
     def test_together_and_separate_layouts(self):
         with tempfile.TemporaryDirectory() as temp:
             source = Path(temp) / "library"
